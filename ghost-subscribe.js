@@ -13,11 +13,6 @@ async function subscribeToGhost(email, ghostSiteBaseUrl) {
                 emailType: "subscribe",
             }),
         });
-
-        // TODO handle failure scenario
-        // const resultText = await result.text();
-        //if ("Created." !== resultText){
-        //}
     } catch (e) {
         console.log("Failed to subscribe", e);
     } finally {
