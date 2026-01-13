@@ -135,7 +135,7 @@ async function subscribeToGhost(email, ghostSiteBaseUrl, options = {}) {
             // Show success message
             if (emailSentElement && subscriptionFormElement) {
                 subscriptionFormElement.classList.add('hidden');
-                emailSentElement.classList.remove('invisible');
+                emailSentElement.classList.remove('hidden');
             }
 
             if (errorElement) {
