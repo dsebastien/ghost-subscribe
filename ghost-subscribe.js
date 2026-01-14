@@ -5,33 +5,105 @@
  * This script implements the complete Ghost newsletter subscription flow:
  * 1. Fetches an integrity token (required for Ghost 6+)
  * 2. Sends the subscription request with the integrity token
- * 3. Stores subscription status in localStorage to prevent re-display
+ * 3. Manages subscription state with sessionStorage and localStorage
  */
 
-const NEWSLETTER_STORAGE_KEY = 'newsletter_subscribed';
+// Storage keys
+const NEWSLETTER_SESSION_KEY = 'newsletter_subscribed_session';  // sessionStorage - current session
+const NEWSLETTER_NEVER_SHOW_KEY = 'newsletter_never_show';       // localStorage - permanent dismissal
+
+// Message display duration in milliseconds
+const MESSAGE_DISPLAY_DURATION = 5000;
 
 /**
- * Check if user has already subscribed (from localStorage)
- * @returns {boolean} True if user has subscribed
+ * Check if user has subscribed during this browser session
+ * @returns {boolean}
  */
-function hasUserSubscribed() {
-    return localStorage.getItem(NEWSLETTER_STORAGE_KEY) === 'true';
+function hasSubscribedThisSession() {
+    return sessionStorage.getItem(NEWSLETTER_SESSION_KEY) === 'true';
 }
 
 /**
- * Mark user as subscribed in localStorage
+ * Mark user as subscribed for this session
  */
-function markUserAsSubscribed() {
-    localStorage.setItem(NEWSLETTER_STORAGE_KEY, 'true');
-    console.log('[Ghost Subscribe] Subscription stored in localStorage');
+function markSubscribedThisSession() {
+    sessionStorage.setItem(NEWSLETTER_SESSION_KEY, 'true');
+    console.log('[Ghost Subscribe] Subscription stored in sessionStorage');
 }
 
 /**
- * Clear subscription status from localStorage (for testing)
+ * Check if user has permanently dismissed the newsletter form
+ * @returns {boolean}
  */
-function clearSubscriptionStatus() {
-    localStorage.removeItem(NEWSLETTER_STORAGE_KEY);
-    console.log('[Ghost Subscribe] Subscription cleared from localStorage');
+function hasUserDismissedPermanently() {
+    return localStorage.getItem(NEWSLETTER_NEVER_SHOW_KEY) === 'true';
+}
+
+/**
+ * Permanently dismiss the newsletter form
+ */
+function dismissNewsletter() {
+    localStorage.setItem(NEWSLETTER_NEVER_SHOW_KEY, 'true');
+    console.log('[Ghost Subscribe] Newsletter permanently dismissed');
+
+    const wrapperElement = document.getElementById('subscription-form-wrapper');
+    if (wrapperElement) {
+        wrapperElement.classList.add('hidden');
+    }
+}
+
+/**
+ * Clear permanent dismissal (for testing)
+ */
+function clearDismissal() {
+    localStorage.removeItem(NEWSLETTER_NEVER_SHOW_KEY);
+    console.log('[Ghost Subscribe] Dismissal cleared from localStorage');
+}
+
+/**
+ * Clear session subscription status (for testing)
+ */
+function clearSessionSubscription() {
+    sessionStorage.removeItem(NEWSLETTER_SESSION_KEY);
+    console.log('[Ghost Subscribe] Session subscription cleared');
+}
+
+/**
+ * Determine if the newsletter form should be shown
+ * @returns {boolean}
+ */
+function shouldShowForm() {
+    return !hasSubscribedThisSession() && !hasUserDismissedPermanently();
+}
+
+/**
+ * Hide the entire newsletter wrapper
+ */
+function hideNewsletterWrapper() {
+    const wrapperElement = document.getElementById('subscription-form-wrapper');
+    if (wrapperElement) {
+        wrapperElement.classList.add('hidden');
+    }
+}
+
+/**
+ * Show a message temporarily, then execute a callback
+ * @param {HTMLElement} messageElement - Element to show
+ * @param {Function} callback - Function to call after duration
+ */
+function showTemporaryMessage(messageElement, callback) {
+    if (messageElement) {
+        messageElement.classList.remove('hidden');
+    }
+
+    setTimeout(() => {
+        if (messageElement) {
+            messageElement.classList.add('hidden');
+        }
+        if (callback) {
+            callback();
+        }
+    }, MESSAGE_DISPLAY_DURATION);
 }
 
 /**
@@ -75,16 +147,21 @@ async function getIntegrityToken(ghostSiteBaseUrl) {
  * @returns {Promise<{success: boolean, message?: string, error?: string}>}
  */
 async function subscribeToGhost(email, ghostSiteBaseUrl, options = {}) {
+    const wrapperElement = document.getElementById('subscription-form-wrapper');
     const emailSentElement = document.getElementById('subscription-mail-sent');
     const subscriptionFormElement = document.getElementById('subscription-form');
     const errorElement = document.getElementById('subscription-error');
+    const dismissElement = document.getElementById('dismiss-newsletter');
 
     // Validate email
     if (!email || !email.includes('@')) {
         console.error('[Ghost Subscribe] Invalid email address');
         if (errorElement) {
-            errorElement.textContent = 'Please enter a valid email address';
-            errorElement.classList.remove('hidden');
+            const errorParagraph = errorElement.querySelector('p');
+            if (errorParagraph) {
+                errorParagraph.textContent = 'Please enter a valid email address';
+            }
+            showTemporaryMessage(errorElement, null);
         }
         return { success: false, error: 'Invalid email address' };
     }
@@ -129,18 +206,24 @@ async function subscribeToGhost(email, ghostSiteBaseUrl, options = {}) {
         if (response.status === 201) {
             console.log('[Ghost Subscribe] Success - magic link sent');
 
-            // Store subscription in localStorage
-            markUserAsSubscribed();
+            // Mark as subscribed for this session
+            markSubscribedThisSession();
 
-            // Show success message
-            if (emailSentElement && subscriptionFormElement) {
+            // Hide form and dismiss link
+            if (subscriptionFormElement) {
                 subscriptionFormElement.classList.add('hidden');
-                emailSentElement.classList.remove('hidden');
             }
-
+            if (dismissElement) {
+                dismissElement.classList.add('hidden');
+            }
             if (errorElement) {
                 errorElement.classList.add('hidden');
             }
+
+            // Show success message temporarily, then hide the entire wrapper
+            showTemporaryMessage(emailSentElement, () => {
+                hideNewsletterWrapper();
+            });
 
             return {
                 success: true,
@@ -155,8 +238,28 @@ async function subscribeToGhost(email, ghostSiteBaseUrl, options = {}) {
         const errorMessage = errorData.errors?.[0]?.message || 'Subscription failed. Please try again.';
 
         if (errorElement) {
-            errorElement.textContent = errorMessage;
-            errorElement.classList.remove('hidden');
+            const errorParagraph = errorElement.querySelector('p');
+            if (errorParagraph) {
+                errorParagraph.textContent = errorMessage;
+            }
+
+            // Hide form temporarily while showing error
+            if (subscriptionFormElement) {
+                subscriptionFormElement.classList.add('hidden');
+            }
+            if (dismissElement) {
+                dismissElement.classList.add('hidden');
+            }
+
+            // Show error message temporarily, then show form again
+            showTemporaryMessage(errorElement, () => {
+                if (subscriptionFormElement) {
+                    subscriptionFormElement.classList.remove('hidden');
+                }
+                if (dismissElement) {
+                    dismissElement.classList.remove('hidden');
+                }
+            });
         }
 
         return { success: false, error: errorMessage };
@@ -167,8 +270,28 @@ async function subscribeToGhost(email, ghostSiteBaseUrl, options = {}) {
         const errorMessage = 'Network error. Please check your connection and try again.';
 
         if (errorElement) {
-            errorElement.textContent = errorMessage;
-            errorElement.classList.remove('hidden');
+            const errorParagraph = errorElement.querySelector('p');
+            if (errorParagraph) {
+                errorParagraph.textContent = errorMessage;
+            }
+
+            // Hide form temporarily while showing error
+            if (subscriptionFormElement) {
+                subscriptionFormElement.classList.add('hidden');
+            }
+            if (dismissElement) {
+                dismissElement.classList.add('hidden');
+            }
+
+            // Show error message temporarily, then show form again
+            showTemporaryMessage(errorElement, () => {
+                if (subscriptionFormElement) {
+                    subscriptionFormElement.classList.remove('hidden');
+                }
+                if (dismissElement) {
+                    dismissElement.classList.remove('hidden');
+                }
+            });
         }
 
         return { success: false, error: errorMessage };
@@ -177,22 +300,14 @@ async function subscribeToGhost(email, ghostSiteBaseUrl, options = {}) {
 
 /**
  * Initialize newsletter form
- * Hides form if user has already subscribed
+ * Hides form if user has already subscribed this session or dismissed permanently
  */
 function initNewsletterForm() {
-    const subscriptionFormElement = document.getElementById('subscription-form');
-    const alreadySubscribedElement = document.getElementById('already-subscribed');
-
-    if (hasUserSubscribed()) {
-        console.log('[Ghost Subscribe] User has already subscribed (from localStorage)');
-
-        if (subscriptionFormElement) {
-            subscriptionFormElement.classList.add('hidden');
-        }
-
-        if (alreadySubscribedElement) {
-            alreadySubscribedElement.classList.remove('hidden');
-        }
+    if (!shouldShowForm()) {
+        console.log('[Ghost Subscribe] Form hidden - subscribed this session or permanently dismissed');
+        hideNewsletterWrapper();
+    } else {
+        console.log('[Ghost Subscribe] Showing newsletter form');
     }
 }
 
